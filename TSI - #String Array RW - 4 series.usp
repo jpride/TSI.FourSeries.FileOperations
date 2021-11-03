@@ -1,0 +1,190 @@
+/*******************************************************************************************
+  SIMPL+ Module Information
+  (Fill in comments below)
+*******************************************************************************************/
+/*
+Dealer Name:
+System Name:
+System Number:
+Programmer:		Jeff Pride
+Comments:
+*/
+
+//*****************************************************************************************//
+//*******************************		DIRECTIVES		***********************************//
+//*****************************************************************************************//
+#SYMBOL_NAME "TSI - #String Array Read-Write (4 Series)"
+#CATEGORY "46" "#TSI Modules"
+#DEFAULT_VOLATILE
+#ENABLE_STACK_CHECKING
+#ENABLE_TRACE
+#OUTPUT_SHIFT	3
+
+#DEFINE_CONSTANT	MAXSTRINGS	42
+#DEFINE_CONSTANT	MAXSTRINGSIZE	1024	
+
+           
+#USER_SIMPLSHARP_LIBRARY "TSI.FourSeries.FileOperations"
+
+//*****************************************************************************************//
+//**********************************		I/O		***************************************//
+//*****************************************************************************************//
+DIGITAL_INPUT 	_skip_,
+				debug,
+				_skip_,
+				Read,
+				Write,
+				_skip_,
+				_skip_;
+
+STRING_INPUT 	StringIn$[MAXSTRINGS][MAXSTRINGSIZE];
+      
+DIGITAL_OUTPUT	_skip_,
+				Load_Complete;
+
+STRING_OUTPUT 	LastUpdated$,
+				_skip_,
+				StringOut$[MAXSTRINGS];
+
+String_Parameter	filepath$[64];
+
+#BEGIN_PARAMETER_PROPERTIES	filepath$
+   	propValidUnits = unitString;
+   	propDefaultUnit = unitString;
+   	propDefaultValue = "/User/";
+	propShortDescription = "/User/filename.json";
+#END_PARAMETER_PROPERTIES
+
+ 
+//*****************************************************************************************//
+//**********************************	GLOBAL VARS	***************************************//
+//*****************************************************************************************//
+FileOperations obj;
+
+string 	lastUpdatedFromSimplSharp[24],
+		stringFromSimplSharp[MAXSTRINGS][MAXSTRINGSIZE],
+		stringFromPlusToSharp[MAXSTRINGS][MAXSTRINGSIZE];
+
+integer StringInCount, debugFlag;
+    
+     
+//*****************************************************************************************//
+//********************************		FUNCTIONS	***************************************//
+//*****************************************************************************************//
+
+function RegisterEventHandlers()
+{
+	RegisterEvent(obj, DeserializationSuccessEvent, OnDeserializationSuccessEvent);	
+}
+    
+
+//*****************************************************************************************//
+//******************************		EVENTHANDLERS	***********************************//
+//*****************************************************************************************//
+  
+//Hold high for debug on, release for debug off
+Threadsafe Change debug
+{
+	debugFlag = debug;
+	obj.SetDebugEnable(debug);
+}    
+     
+
+Threadsafe Push Read
+{
+	obj.FilePath = filepath$;
+	obj.ReadFile();
+	pulse(100, Load_Complete);
+
+}
+     
+
+
+Threadsafe Push Write
+{
+	integer i;
+         
+	try
+	{
+		for (i = 0 to StringInCount - 1)
+		{
+			obj.UpdateListFromSimpl(i,StringIn$[i+1]);
+			StringOut$[i+1] = StringIn$[i+1];
+		}
+
+		delay(10);
+	    obj.WriteFile();
+		pulse(100, Load_Complete);
+
+
+	}
+	catch
+	{
+    	trace("Write Event Exception thrown: %s",GetExceptionMessage());
+	}
+
+}
+    
+
+//eventhandler called when the simpl# app internally raises the event
+eventhandler OnDeserializationSuccessEvent(FileOperations sender, DeserializationSuccessEventArgs args)
+{
+	integer i;
+       
+	try
+	{
+		if (debugFlag) {	trace("ListCount: %d",args.ListCount); }
+            
+		//this loops through the list of strings returned by the EventArgs associated with this event
+		//it grabs the strings from args.StringArray an sets the output strings to those strings                                  
+		for (i = 0 to args.ListCount - 1) 
+		{
+			stringFromSimplSharp[i] = args.StringArray[i];
+			StringOut$[i+1] = stringFromSimplSharp[i];
+		}
+	
+		lastUpdatedFromSimplSharp = args.LastUpdate;
+		LastUpdated$ = lastUpdatedFromSimplSharp;
+	}
+	catch	
+	{
+    	trace("Deserialization Event Exception thrown: %s",GetExceptionMessage());
+	}
+
+	pulse(100, Load_Complete);
+
+	
+
+} 
+
+ 
+//*****************************************************************************************//
+//**********************************		MAIN	***************************************//
+//*****************************************************************************************//
+
+
+function main()
+{
+	integer i;
+
+	//Register Eventhandlers
+	RegisterEventHandlers();
+
+	waitforinitializationcomplete();
+        
+	debugFlag = debug;
+
+	for (i = MAXSTRINGS to 1 step -1)
+	{
+    	if (isSignalDefined(StringIn$[i]))
+		{
+        	StringInCount = i;
+			break;
+		}
+	}              
+
+	//set Filepath
+	obj.FilePath = filepath$;
+     
+
+}
